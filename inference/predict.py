@@ -2,8 +2,11 @@ import torch
 from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
 import os
 import time
+import json
+import math
 
-SAVE_DIR = os.path.join(os.path.dirname(__file__), "..", "saved_model")
+SAVE_DIR   = os.path.join(os.path.dirname(__file__), "..", "saved_model")
+CALIB_PATH = os.path.join(os.path.dirname(__file__), "calibration.json")
 MAX_LENGTH = 256
 WINDOW_SIZE = 5
 
@@ -12,12 +15,15 @@ JAILBREAK_THRESHOLD  = 0.7
 SUSPICIOUS_THRESHOLD = 0.4
 
 # Load once at import time (reused across all calls)
-_tokenizer = None
-_model     = None
-_device    = None
+_tokenizer   = None
+_model       = None
+_device      = None
+_calib_coef  = None
+_calib_inter = None
+
 
 def _load():
-    global _tokenizer, _model, _device
+    global _tokenizer, _model, _device, _calib_coef, _calib_inter
     if _model is not None:
         return
     _device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,6 +35,12 @@ def _load():
     dummy = _tokenizer("warmup", return_tensors="pt", padding="max_length", max_length=MAX_LENGTH)
     with torch.no_grad():
         _model(dummy["input_ids"].to(_device), dummy["attention_mask"].to(_device))
+    # Load Platt scaling calibration if available
+    if os.path.exists(CALIB_PATH):
+        with open(CALIB_PATH) as f:
+            params = json.load(f)
+        _calib_coef  = params["coef"]
+        _calib_inter = params["intercept"]
 
 
 def format_window(messages: list[dict]) -> str:
@@ -61,9 +73,15 @@ def predict_text(text: str) -> dict:
             enc["input_ids"].to(_device),
             enc["attention_mask"].to(_device),
         ).logits
-    probs      = torch.softmax(logits, dim=-1)
-    risk_score = probs[0][1].item()
+    raw_logit  = logits[0][1].item()
     latency_ms = (time.perf_counter() - t0) * 1000
+
+    if _calib_coef is not None:
+        # Platt scaling: sigmoid(coef * raw_logit + intercept)
+        risk_score = 1 / (1 + math.exp(-(_calib_coef * raw_logit + _calib_inter)))
+    else:
+        probs      = torch.softmax(logits, dim=-1)
+        risk_score = probs[0][1].item()
 
     if risk_score >= JAILBREAK_THRESHOLD:
         label = "jailbreak"
