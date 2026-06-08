@@ -1,0 +1,16 @@
+﻿torch==2.11.0+cu128
+transformers==5.10.2
+datasets==5.0.0
+scikit-learn==1.9.0
+numpy==2.4.6
+pandas==3.0.3
+accelerate==1.13.0
+onnx==1.21.0
+onnxruntime==1.26.0
+tqdm==4.68.1
+
+# API (Phase 2)
+# fastapi
+# uvicorn[standard]
+# redis
+# python-jose[cryptography]

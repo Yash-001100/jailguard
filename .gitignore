@@ -1,0 +1,24 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Large data files — download locally with data/download_datasets.py
+Dataset/
+data/train.csv
+data/test.csv
+
+# Model weights — too large for GitHub, store separately
+saved_model/
+
+# HuggingFace cache
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
