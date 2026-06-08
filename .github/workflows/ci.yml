@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install CPU torch + deps
+        run: |
+          pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Download model weights
+        run: echo "Model weights are not stored in git. Tests run with a mock if weights absent."
+
+      - name: Run tests
+        env:
+          JAILGUARD_API_KEY: dev-secret-key
+          REDIS_URL: redis://localhost:6379
+        run: pytest tests/ -v --tb=short

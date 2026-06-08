@@ -22,3 +22,8 @@ saved_model/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local env
+.env
+.pytest_cache/
+

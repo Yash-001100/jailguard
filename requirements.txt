@@ -10,7 +10,11 @@ onnxruntime==1.26.0
 tqdm==4.68.1
 
 # API (Phase 2)
-# fastapi
-# uvicorn[standard]
-# redis
-# python-jose[cryptography]
+fastapi==0.115.14
+uvicorn[standard]==0.35.0
+redis==6.2.0
+httpx==0.28.1
+pytest==8.4.0
+pytest-asyncio==0.25.3
+fakeredis==2.28.1
+python-dotenv==1.1.0
