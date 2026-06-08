@@ -1,0 +1,30 @@
+name: Publish Python SDK to PyPI
+
+on:
+  push:
+    tags:
+      - "sdk-python-v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install hatchling build twine
+
+      - name: Build wheel
+        working-directory: sdk/python
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: sdk/python
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload dist/*

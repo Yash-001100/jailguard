@@ -1,0 +1,21 @@
+{
+  "name": "jailguard",
+  "version": "1.0.0",
+  "description": "JavaScript SDK for the JailGuard jailbreak detection API",
+  "main": "jailguard.js",
+  "types": "jailguard.d.ts",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": ["jailbreak", "ai-safety", "llm", "moderation", "api"],
+  "author": "Yash <kalrayashpreet@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yash-001100/jailguard.git",
+    "directory": "sdk/js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
