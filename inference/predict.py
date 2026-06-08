@@ -4,26 +4,32 @@ import os
 import time
 import json
 import math
+import joblib
+import numpy as np
 
-SAVE_DIR   = os.path.join(os.path.dirname(__file__), "..", "saved_model")
-CALIB_PATH = os.path.join(os.path.dirname(__file__), "calibration.json")
-MAX_LENGTH = 256
-WINDOW_SIZE = 5
+SAVE_DIR          = os.path.join(os.path.dirname(__file__), "..", "saved_model")
+CALIB_PATH        = os.path.join(os.path.dirname(__file__), "calibration.json")
+ATTACK_HEAD_PATH  = os.path.join(os.path.dirname(__file__), "attack_head.joblib")
+MAX_LENGTH        = 256
+WINDOW_SIZE       = 5
 
 # Thresholds for the three-tier label
 JAILBREAK_THRESHOLD  = 0.7
 SUSPICIOUS_THRESHOLD = 0.4
 
 # Load once at import time (reused across all calls)
-_tokenizer   = None
-_model       = None
-_device      = None
-_calib_coef  = None
-_calib_inter = None
+_tokenizer    = None
+_model        = None
+_device       = None
+_calib_coef   = None
+_calib_inter  = None
+_attack_model = None
+_attack_classes = None
 
 
 def _load():
     global _tokenizer, _model, _device, _calib_coef, _calib_inter
+    global _attack_model, _attack_classes
     if _model is not None:
         return
     _device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,13 +40,19 @@ def _load():
     # Warm-up pass so first real call isn't slow
     dummy = _tokenizer("warmup", return_tensors="pt", padding="max_length", max_length=MAX_LENGTH)
     with torch.no_grad():
-        _model(dummy["input_ids"].to(_device), dummy["attention_mask"].to(_device))
+        _model(dummy["input_ids"].to(_device), dummy["attention_mask"].to(_device),
+               output_hidden_states=True)
     # Load Platt scaling calibration if available
     if os.path.exists(CALIB_PATH):
         with open(CALIB_PATH) as f:
             params = json.load(f)
         _calib_coef  = params["coef"]
         _calib_inter = params["intercept"]
+    # Load attack type head if available
+    if os.path.exists(ATTACK_HEAD_PATH):
+        payload         = joblib.load(ATTACK_HEAD_PATH)
+        _attack_model   = payload["model"]
+        _attack_classes = payload["classes"]
 
 
 def format_window(messages: list[dict]) -> str:
@@ -69,18 +81,18 @@ def predict_text(text: str) -> dict:
         return_tensors="pt",
     )
     with torch.no_grad():
-        logits = _model(
+        out = _model(
             enc["input_ids"].to(_device),
             enc["attention_mask"].to(_device),
-        ).logits
-    raw_logit  = logits[0][1].item()
+            output_hidden_states=True,
+        )
+    raw_logit  = out.logits[0][1].item()
     latency_ms = (time.perf_counter() - t0) * 1000
 
     if _calib_coef is not None:
-        # Platt scaling: sigmoid(coef * raw_logit + intercept)
         risk_score = 1 / (1 + math.exp(-(_calib_coef * raw_logit + _calib_inter)))
     else:
-        probs      = torch.softmax(logits, dim=-1)
+        probs      = torch.softmax(out.logits, dim=-1)
         risk_score = probs[0][1].item()
 
     if risk_score >= JAILBREAK_THRESHOLD:
@@ -90,7 +102,25 @@ def predict_text(text: str) -> dict:
     else:
         label = "safe"
 
-    return {"risk_score": round(risk_score, 4), "label": label, "latency_ms": round(latency_ms, 2)}
+    # Attack type — only when not safe and attack head is loaded
+    attack_type = None
+    attack_confidence = None
+    if label != "safe" and _attack_model is not None:
+        cls_vec    = out.hidden_states[-1][0, 0, :].cpu().numpy().reshape(1, -1)
+        proba      = _attack_model.predict_proba(cls_vec)[0]
+        lr_classes = _attack_model.classes_
+        best_idx   = int(np.argmax(proba))
+        attack_type       = lr_classes[best_idx]
+        attack_confidence = round(float(proba[best_idx]), 4)
+
+    result = {
+        "risk_score":        round(risk_score, 4),
+        "label":             label,
+        "attack_type":       attack_type,
+        "attack_confidence": attack_confidence,
+        "latency_ms":        round(latency_ms, 2),
+    }
+    return result
 
 
 def predict(messages: list[dict]) -> dict:
@@ -144,4 +174,8 @@ if __name__ == "__main__":
     for t in tests:
         result = predict(t["messages"])
         print(f"{t['label']}")
-        print(f"  risk_score: {result['risk_score']}  |  label: {result['label']}  |  latency: {result['latency_ms']}ms\n")
+        print(f"  risk_score:  {result['risk_score']}")
+        print(f"  label:       {result['label']}")
+        if result["attack_type"]:
+            print(f"  attack_type: {result['attack_type']}  (conf {result['attack_confidence']})")
+        print(f"  latency:     {result['latency_ms']}ms\n")
